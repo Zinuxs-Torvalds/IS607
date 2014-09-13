@@ -99,10 +99,10 @@ concate(char1, char2)
 concate(char1, char3)
 
 # 13. ----
-# function that takes character vector and returns substring of 3 characters...
-# that begins with 1st vowel in string; handle functions where this isn't possible
-# first vowel and 2 chars after that ... "Facetious" -> "ACE"
-
+someChar <- c("facetious", "superfluous")
+require(stringr)
+str_extract(string = someChar, pattern = "[aeiou]{3}") 
+# are we counting "y" as a vowel?
 
 # 14. ----
 mo <- c(01, 02, 03, 04, 05, 06)
