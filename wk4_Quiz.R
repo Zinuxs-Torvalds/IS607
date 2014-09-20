@@ -16,6 +16,7 @@ m <- read.table("movies.tab", sep="\t", header=TRUE, quote="", comment="")
 #   action, animation, comedy, drama, documentary, romance, short -- binary variables representing movie genre
 
 require(ggplot2)
+require(scales)
 require(reshape2)
 
 # 1. ----
