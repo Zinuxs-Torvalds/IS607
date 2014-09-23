@@ -1,0 +1,128 @@
+Week 4 Assignment
+========================================================
+Jordan Erickson  
+
+Purpose: using the IMDB movies dataset, answer the question, "Which year were the best popular movies made?"
+
+```{r data}
+setwd("~/2_Jordan School/02_IS 607_Data Acquisit Mgmt")
+# internet movie database, IMDB, 58,788 movies
+m <- read.table("movies.tab", sep="\t", header=TRUE, quote="", comment="")
+```
+
+Variables of *interest*:
+- year: Year of release
+- rating: Average IMDB user rating
+- votes: Number of IMDB users who rated this movie
+
+```{r packages}
+require(ggplot2)
+require(scales)
+require(plyr)
+```
+
+### General algorithm for deciding how to compare "best popular" between years
+"Best" and "popular", for me, denote a combination of highest rated and highest voted movies. I measure "popular" by votes, where the movie with the highest votes is the most popular. I measure "best" by rating, where the highest average user rating is the best movie. Once I've identified "popular" and "best" movies, then I calculate the percentage of "best popular" movies in each release year and determine which year produced the highest percentage of "best popular" movies.
+
+### Popular movies -- votes
+What does the distribution of votes look like?
+
+```{r votes-summary}
+(q <- summary(m$votes))
+```
+
+```{r votes-histo}
+ggplot(data = m) + geom_histogram(aes(x = votes)) + geom_rug(data = m, aes(x = votes)) +
+  scale_x_continuous(labels = comma, expand = c(0, 0)) + scale_y_continuous(labels = comma) + 
+  labs(title = "Distribution of votes", x = "Votes", y = "# of movies")
+```
+
+Wow! That's one skewed distribution. The top 25% of all movies have `r q[[5]]` or more votes.
+
+### Best movies -- rating
+What does the distribution of (average) ratings look like?
+
+```{r rating-summary}
+(p <- summary(m$rating))
+```
+
+```{r rating-histo}
+ggplot(data = m) + geom_histogram(aes(x = rating)) + 
+  scale_x_continuous(expand = c(0, 0), breaks = seq(2, 10, 2)) + scale_y_continuous(labels = comma) + 
+  labs(title = "Distribution of ratings", x = "Rating", y = "# of movies")
+```
+
+This distribution seems slightly skewed left-to-moderately symmetric. The top 25% of all movies have an average rating of `r p[[5]]` or more.
+
+### Best popular movies -- rating and votes
+What does the joint distribution of (average) ratings and votes look like?
+
+```{r rating-votes}
+ggplot(data = m, aes(x = rating, y = votes)) + geom_point() + 
+  scale_y_continuous(labels = comma) + scale_x_continuous(breaks = seq(2, 10, 2)) +
+  labs(title = "Joint distribution of ratings and votes", x = "Rating", y = "Votes")
+```
+
+
+```{r rating-votes-class1a}
+m$bp <- ifelse(m$rating >= p[[5]] & m$votes >= q[[5]], 1, 0) # classify best-popular (bp) movies based on 3rd quartile
+(best.popular <- (sum(m$bp, na.rm = TRUE))) # How many best-popular movies?
+(best.popular.per <- round((sum(m$bp, na.rm = TRUE) / length(m$bp)), 3)*100) # What % of best-popular movies?
+```
+
+Now I need to select a rating-votes threshold to classify movies as "best popular." If I set the threshold to the top 25% in both rating and votes (based on the third quartile), then I classify `r best.popular` movies as *best-popular*. (That is `r best.popular.per`% of the total movies.) Here is a graph with the best-popular movies highlighted:
+
+```{r rating-votes-class1b}
+m$bp.label <- ifelse(m$bp == 1, "Yes", "No") # label best-popular for ggplot
+ggplot(data = m, aes(x = rating, y = votes)) + geom_point(aes(color = bp.label)) + 
+  scale_y_continuous(labels = comma) + scale_x_continuous(breaks = seq(2, 10, 2)) +
+  labs(title = "Joint distribution of ratings and votes by best-popular", x = "Rating", y = "Votes") +
+  scale_color_discrete(name = "Best-Popular Movies")
+```
+
+With the best-popular classification, I can now calculate how many best-popular movies were released in each year.
+
+```{r rating-votes-class2}
+m.class1 <- aggregate(m$bp, by = list(m$year), FUN = sum) # count best-popular movies in each year
+colnames(m.class1) <- c("year", "bp.count")
+
+m.class2 <- aggregate(m$bp, by = list(m$year), FUN = NROW) # count total movies in each year
+colnames(m.class2) <- c("year", "total.movies")
+
+m.class <- join(x = m.class1, y = m.class2, by = "year") # use plyr join function to combine data.frames
+m.class$bp.percent <- round((m.class$bp.count / m.class$total.movies)*100, 2) # proportion of best-popular movies within a year
+```
+
+At first glance, it would seem I simply need to identify the year with the most best-popular movies. However, the number of best-popular movies is highly correlated with the total movies released in that year:
+
+```{r rating-votes-class3}
+ggplot(data = m.class, aes(x = year, y = bp.count)) + geom_line() + 
+  scale_y_continuous(labels = comma) + 
+  labs(title = "Best-popular movies by year", x = "Year of release", y = "# of best-popular movies")
+
+ggplot(data = m.class, aes(x = year, y = total.movies)) + geom_line() + 
+  labs(title = "Total movies released by year", x = "Year of release", y = "# of movies")
+
+ggplot(data = m.class, aes(x = total.movies, y = bp.count)) + geom_point() +
+  scale_x_continuous(labels = comma) + 
+  labs(title = "Relationship between best-popular and total movies (by year of release)", x = "# of total movies released", 
+       y = "# of best-popular movies")
+```
+
+```{r rating-votes-class4a}
+m.class$bp.percent.max <- ifelse(m.class$bp.percent == max(m.class$bp.percent), "Yes", "No") # identify maximum % best-popular 
+maximus <- m.class[m.class$bp.percent.max == "Yes", ] # find max % best-popular observation
+```
+
+To control for the number of movies released in any given year, I divide the # of best-popular movies by the # of movies released in each year. This gives me the percent of best-popular movies released in each year and the answer to the original question.  
+
+**Q:** Which year were the best popular movies made? 
+
+**A:** `r maximus$year` with `r maximus$bp.count` best-popular movies released, or `r maximus$bp.percent`% of the `r maximus$total.movies` total movies released that year. The green dot on the time series graph highlights `r maximus$year`:
+
+```{r rating-votes-class4b}
+cbbPalette <- c("#000000", "#009E73", "#56B4E9", "#E69F00", "#F0E442", "#0072B2", "#D55E00", "#CC79A7") # create color palette
+ggplot(data = m.class, aes(x = year, y = bp.percent)) + geom_line() + geom_point(aes(color = bp.percent.max, size = bp.percent.max)) +
+  theme(legend.position = "none") + scale_color_manual(values = cbbPalette) + scale_size_manual(values=c(2, 5)) +
+  labs(title = "Percent of best-popular movies by year", x = "Year of release", y = "% of best-popular movies (by year)")
+```
