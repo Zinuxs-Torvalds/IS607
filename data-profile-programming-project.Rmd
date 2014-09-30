@@ -1,0 +1,547 @@
+---
+title: "Data Profile Programming Project"
+author: "Jordan Erickson"
+date: "Tuesday, September 30, 2014"
+output: pdf_document
+---
+```{r options, echo=FALSE, results='hide', message=FALSE}
+setwd("~/2_Jordan School/02_IS 607_Data Acquisit Mgmt")
+options(stringsAsFactors = FALSE)
+
+# packages:
+require(knitr)
+require(tidyr)
+require(dplyr)
+require(ggplot2)
+require(scales)
+require(gridExtra)
+require(xtable)
+
+# require(reshape2) # for colsplit
+# require(metrumrg) # for titleCase function to make Title Case
+# require(plyr) # for join
+```
+
+```{r setup, include=FALSE}
+opts_chunk$set(message = FALSE, warning = FALSE, fig.width = 12, fig.height = 6)
+```
+## About the Data
+**Name:** Medicare Provider Charge Data: Inpatient
+
+**Source:** Centers for Medicare and Medicaid Services (CMS); data can be downloaded [here](http://visualizing.org/datasets/medicare-provider-charge-data-inpatient)
+
+**Description:** The data include hospital-specific charges for the more than 3,000 U.S. hospitals that receive Medicare (inpatient) payments for the top 100 most frequently billed discharges, paid under Medicare based on a rate per discharge using the Medicare Severity Diagnosis Related Group (MS-DRG) for the Fiscal Year (FY) 2011. These DRGs represent almost 7 million discharges or 60 percent of total Medicare inpatient discharges.
+
+Hospitals determine what they will charge for services provided to patients and these charges are the amount the hospital bills for a service. Included in the data are the 'Average Covered Charges' for each DRG by hospital.
+
+Medicare then determines what it will pay to the hospital. The 'Average Total Payments'* are included in the data for each DRG by hospital to make comparisons between what was charged (by the hospital to Medicare) and what was paid (by Medicare to the hospital).
+
+*Total Payments include the MS-DRG amount, bill total per diem, beneficiary primary payer claim payment amount, beneficiary Part A coinsurance amount, beneficiary deductible amount, beneficiary blood deducible amount and DRG outlier amount.
+```{r data}
+# load CMS data
+cms <- read.csv("Medicare_Provider_Charge_Inpatient_DRG100_FY2011.csv", header = TRUE)
+cms <- tbl_df(cms)
+```
+
+```{r dim, echo=FALSE}
+d <- dim(cms)
+```
+**Observations:** `r format(d[1], big.mark = ",")` DRG-hospital charges
+
+**Variables:**
+
+1. DRG Definition: Diagnosis Related Groups (DRGs) classify hospital stays into groups for payment purposes
+2. Provider Id: unique code for each hospital
+3. Provider Name: name of hospital
+4. Provider Street Address: hospital location
+5. Provider City: hospital location
+6. Provider State: hospital location
+7. Provider Zip Code: hospital location
+8. Hospital Referral Region Description: 306 hospital referral regions, HRRs are defined based on patient referrals for major cardiovascular surgery and neurosurgery
+9. Total Discharges: total # of discharges for a specific DRG-hospital combination
+10. Average Covered Charges: what the hospital charged Medicare
+11. Average Total Payments: what Medicare actually paid to the hospital -- the difference is not paid
+
+\pagebreak
+
+# Exploratory Data Analysis
+## Discharges by Diagnosis Related Groups (DRGs)
+```{r drg, echo=FALSE}
+# split DRG.Definition into drg.code and drg
+cms <- data.frame(cms, reshape2::colsplit(cms$DRG.Definition, " - ", c("drg.code", "drg")))
+cms$drg <- tolower(cms$drg) # convert drg to lowercase
+cms <- tbl_df(cms)
+
+total.discharges <- sum(cms$Total.Discharges) # grand total of discharges
+
+total.hospitals <- length(unique(cms$Provider.Id))
+
+# create data frame of # discharges and % discharges by DRG:
+drg.discharges <- cms %>%
+  group_by(drg) %>%
+  select(drg.code, drg, Total.Discharges) %>%
+  summarize(
+    Discharges = sum(Total.Discharges, na.rm = TRUE),
+    Percent.Discharges = round((Discharges / total.discharges) * 100, digits = 2)
+    ) %>%
+  arrange(desc(Discharges))
+
+names(drg.discharges) <- c("DRG", "Discharges", "%") # rename variables
+```
+
+In 2011, there were a total of `r format(total.discharges, big.mark = ",")` Medicare patient discharges among the top 100 most frequently billed DRGs. As a classification system, DRGs not only summarize patient conditions, but also provide us with a sense of hospital expenses as patients in a particular DRG are likely to need a similar level of hospital resources.
+
+The top 10 DRGs billed by the hospitals are shown in the table below. [Note: attached to each DRG is a classifier---with (w) or without (w/o) major complications and comorbidities (mcc or cc)]
+
+```{r drg_table, echo=FALSE, results='asis'}
+# print top 10 DRGs
+print(xtable(drg.discharges[1:10,]), #, caption = "Top 10 DRGs"
+      comment = FALSE,
+      format.args = list(big.mark = ",")) #, caption.placement = "top"
+# comment = FALSE --> removes % latex table generated in R 3.1.0 by xtable 1.7-3 package...
+# include.rownames = TRUE
+
+# To add alternating row colors -- zebra stripes:
+# rows <- seq(1, (nrow(myDF)), by = 2) # define row indices (odd rows, including vars)
+# zebra.color <- rep("\\rowcolor[gray]{0.95}", length(rows)) # define color
+# print(xtable(myDF), booktabs = TRUE, 
+#       add.to.row = list(pos = as.list(rows), command = zebra.color))
+
+total.discharges.10 <- sum(drg.discharges[1:10, "Discharges"])
+percent.discharges.10 <- round(total.discharges.10 / total.discharges * 100, digits = 2)
+```
+
+The top 10 DRGs amounted to `r format(total.discharges.10, big.mark = ",")` discharges, or `r percent.discharges.10`% of all discharges.
+
+The distribution of discharges across all 100 DRGs are shown below (top 10 DRGs are shaded in **black**). [Note: the DRG names were removed from the graphs due to space constraints.]
+
+```{r drg_dist, echo=FALSE}
+# order drg.discharges by ASCENDING discharges for plots
+drg.discharges2 <- cms %>%
+  group_by(drg) %>%
+  select(drg.code, drg, Total.Discharges) %>%
+  summarize(
+    Discharges = sum(Total.Discharges, na.rm = TRUE),
+    Percent.Discharges = round((Discharges / total.discharges) * 100, digits = 2)
+    ) %>%
+  arrange(Discharges)
+
+drg.discharges2$drg <- factor(drg.discharges2$drg, levels = as.character(drg.discharges2$drg))
+
+palette <- c("#999999", "#000000") # set colors to gray and black
+
+drg.bar1 <- ggplot(drg.discharges2, aes(x = drg, y = Discharges)) + 
+  geom_bar(stat = "identity", aes(fill = drg.discharges2$Discharges >= 149677)) +
+  scale_fill_manual(values = palette) +
+  scale_y_continuous(expand = c(0, 0), labels = comma) + scale_x_discrete(breaks = NULL) + 
+  theme(legend.position = "none", 
+        plot.title = element_text(size = 14, face = "bold", vjust = 1),
+        axis.title.x = element_text(size = 13, vjust = -0.15),
+        axis.title.y = element_text(size = 13)) + 
+  labs(title = "Discharges by DRG", y = "# of discharges", x = "DRG") +
+  coord_flip()
+
+drg.bar2 <- ggplot(drg.discharges2, aes(x = drg, y = (Percent.Discharges/100))) + 
+  geom_bar(stat = "identity", aes(fill = drg.discharges2$Percent.Discharges >= 2.15)) +
+  scale_fill_manual(values = palette) +
+  scale_y_continuous(expand = c(0, 0), labels = percent) + scale_x_discrete(breaks = NULL) + 
+  theme(legend.position = "none", 
+        plot.title = element_text(size = 14, face = "bold", vjust = 1),
+        axis.title.x = element_text(size = 13, vjust = -0.15),
+        axis.title.y = element_text(size = 13)) + 
+  labs(title = "Percentage of discharges by DRG", y = "% of discharges", x = "DRG") +
+  coord_flip()
+
+grid.arrange(drg.bar1, drg.bar2, ncol=2)
+```
+
+\pagebreak
+
+## Discharges by Major Diagnostic Categories (MDC)
+DRGs can be more generally categorized into one of 25 Major Diagnostic Categories (MDC). MDCs typically correspond to a single organ system.
+
+```{r mdc, echo=FALSE}
+mdc <- read.csv("mdc.csv", header = TRUE) # load crosswalk table with both DRGs and corresponding MDCs
+cms.mdc <- plyr::join(cms, mdc, by = "DRG.Definition") # join cms with mdc to include MDC categories
+rm(mdc) # remove mdc data frame from memory
+
+# split MDC.Definition into mdc.code and mdc:
+cms.mdc <- data.frame(cms.mdc, reshape2::colsplit(cms.mdc$MDC.Definition, " - ", c("mdc.code", "mdc")))
+cms.mdc <- tbl_df(cms.mdc)
+
+# create data frame of # discharges and % discharges by MDC:
+mdc.discharges <- cms.mdc %>%
+  group_by(mdc) %>%
+  select(mdc.code, mdc, Total.Discharges) %>%
+  summarize(
+    Discharges = sum(Total.Discharges, na.rm = TRUE),
+    Percent.Discharges = round((Discharges / total.discharges) * 100, digits = 2)
+    ) %>%
+  arrange(desc(Discharges))
+
+names(mdc.discharges) <- c("MDC", "Discharges", "%") # rename variables
+```
+
+The MDC classification collapses the 100 DRGs into `r length(mdc.discharges$MDC)` general categories:
+
+```{r mdc_table, echo=FALSE, results='asis'}
+# print MDCs
+print(xtable(mdc.discharges), # , caption = "MDCs"
+      comment = FALSE,
+      format.args = list(big.mark = ",")) # , caption.placement = "top"
+```
+
+Almost half (`r sum(mdc.discharges$"%"[1], mdc.discharges$"%"[2])`%) of all hospital visits required either circulatory or respiratory services.
+
+```{r mdc_dist, echo=FALSE}
+# order mdc.discharges by ASCENDING discharges for plots
+mdc.discharges2 <- cms.mdc %>%
+  group_by(mdc) %>%
+  select(mdc.code, mdc, Total.Discharges) %>%
+  summarize(
+    Discharges = sum(Total.Discharges, na.rm = TRUE),
+    Percent.Discharges = round((Discharges / total.discharges) * 100, digits = 2)
+    ) %>%
+  arrange(Discharges)
+
+mdc.discharges2$mdc <- factor(mdc.discharges2$mdc, levels = as.character(mdc.discharges2$mdc))
+
+mdc.bar <- ggplot(mdc.discharges2, aes(x = mdc, y = (Percent.Discharges)/100)) + 
+  geom_bar(stat = "identity", aes(fill = mdc.discharges2$Discharges >= 1212266)) +
+  scale_fill_manual(values = palette) +
+  scale_y_continuous(expand = c(0, 0), labels = percent) +
+  theme(legend.position = "none", 
+        plot.title = element_text(size = 14, face = "bold", vjust = 1),
+        axis.title.x = element_text(size = 13, vjust = -0.15),
+        axis.title.y = element_text(size = 13)) + 
+  labs(title = "Percentage of discharges by MDC", y = "% of discharges", x = "MDC") +
+  coord_flip()
+
+mdc.bar
+```
+
+\pagebreak
+
+Below is a breakdown of the top 10 DRGs in the Circulatory System MDC (which comprises `r mdc.discharges$"%"[1]`% of the total discharges).
+
+```{r circulatory_table, echo=FALSE, results='asis'}
+# create data frame of circulatory system:
+mdc.circulatory <- filter(cms.mdc, mdc == "Circulatory System")
+total.discharges.circ <- sum(mdc.circulatory$Total.Discharges) # total of circulatory discharges
+
+circulatory <- mdc.circulatory %>%
+  group_by(drg) %>%
+  select(mdc, drg, Total.Discharges) %>%
+  summarize(
+    Discharges = sum(Total.Discharges, na.rm = TRUE),
+    Percent.Discharges = round((Discharges / total.discharges.circ) * 100, digits = 2)
+    ) %>%
+  arrange(desc(Discharges))
+
+names(circulatory) <- c("DRGs for Circulatory System", "Discharges", "%") # rename variables
+
+# print DRGs for circulatory MDC
+print(xtable(circulatory[1:10,]),
+      comment = FALSE,
+      format.args = list(big.mark = ","))
+```
+
+Below is a breakdown of the top 10 DRGs in the Respiratory System MDC (which comprises `r mdc.discharges$"%"[2]`% of the total discharges).
+
+```{r respiratory_table, echo=FALSE, results='asis'}
+# create data frame of respiratory system:
+mdc.respiratory <- filter(cms.mdc, mdc == "Respiratory System")
+total.discharges.resp <- sum(mdc.respiratory$Total.Discharges) # total of respiratory discharges
+
+respiratory <- mdc.respiratory %>%
+  group_by(drg) %>%
+  select(mdc, drg, Total.Discharges) %>%
+  summarize(
+    Discharges = sum(Total.Discharges, na.rm = TRUE),
+    Percent.Discharges = round((Discharges / total.discharges.resp) * 100, digits = 2)
+    ) %>%
+  arrange(desc(Discharges))
+
+names(respiratory) <- c("DRGs for Respiratory System", "Discharges", "%") # rename variables
+
+# print DRGs for respiratory MDC
+print(xtable(respiratory[1:10,]),
+      comment = FALSE,
+      format.args = list(big.mark = ","))
+```
+
+\pagebreak
+
+## Discharges by hospitals
+```{r hospitals, echo=FALSE}
+cms$Provider.Name <- metrumrg::titleCase(cms$Provider.Name) # convert Provider.Name to Title Case
+
+# length(unique(cms$Provider.Id)) # unique hospital ID
+# length(unique(cms$Provider.Name)) # some hospitals have the same NAME
+
+# create data frame of # discharges and % discharges by Provider.Id:
+hospital.discharges <- cms %>%
+  group_by(Provider.Id) %>%
+  select(Provider.Id, Total.Discharges) %>%
+  summarize(
+    Discharges = sum(Total.Discharges, na.rm = TRUE),
+    Percent.Discharges = round((Discharges / total.discharges) * 100, digits = 2)
+    ) %>%
+  arrange(desc(Discharges))
+
+# create data frame of hospital names and states
+hospital.names <- cms %>%
+  group_by(Provider.Id, Provider.Name, Provider.State) %>%
+  summarize(
+    Provider.Name.U = n_distinct(Provider.Id)
+    )
+
+# join discharges and names:
+hospital.discharges <- plyr::join(hospital.discharges, hospital.names, by = "Provider.Id")
+hospital.discharges <- tbl_df(hospital.discharges)
+# rm(hospital.names)
+hospital.discharges <- select(hospital.discharges, Provider.Id, Provider.Name, Provider.State, Discharges, Percent.Discharges)
+
+names(hospital.discharges) <- c("Hospital ID", "Hospital Name", "State", "Discharges", "%") # rename variables
+
+stats.discharges <- summary(hospital.discharges$Discharges)
+```
+
+Among the `r format(total.hospitals, big.mark = ",")` hospitals in the dataset, the typical (median) number of discharges was `r format(median(hospital.discharges$Discharges), big.mark = ",")`. And 50% of the hospitals discharged anywhere between `r format(stats.discharges[[2]], big.mark = ",")` and `r format(stats.discharges[[5]], big.mark = ",")` Medicare patients. As seen in the histograms below, there was quite a bit of variation in the number of discharges between the hospitals. [Note: the data does *not* include all hospital discharges, only the top 100 most frequently billed discharges in 2011.]
+
+```{r hospitals_table1, echo=FALSE, results='asis'}
+hospitals.stats <- summarise(hospital.discharges,
+                             N = n(),
+                             Minimum = min(Discharges),
+                             "1st Quartile" = quantile(Discharges, .25),
+                             Median = quantile(Discharges, .50),
+                             Mean = mean(Discharges),
+                             "3rd Quartile" = quantile(Discharges, .75),
+                             Maximum = max(Discharges))
+
+# print summary stats for discharges by hospitals
+print(xtable(hospitals.stats, digits = 0),
+      comment = FALSE, include.rownames = FALSE,
+      format.args = list(big.mark = ","))
+```
+
+```{r hospitals_dist, echo=FALSE}
+hospitals.histo1 <- ggplot(data = hospital.discharges) + geom_histogram(aes(x = Discharges)) + 
+  geom_vline(xintercept = median(hospital.discharges$Discharges), color = "grey50", linetype = "dashed", size = 1) +
+  scale_x_continuous(labels = comma, expand = c(0, 0)) + scale_y_continuous(labels = comma) + 
+  theme(plot.title = element_text(size = 14, face = "bold", vjust = 1),
+        axis.title.x = element_text(size = 13, vjust = -0.15),
+        axis.title.y = element_text(size = 13)) + 
+  labs(title = "Discharges by hospitals", x = "# of discharges", y = "# of hospitals")
+
+hospitals.histo2 <- ggplot(data = hospital.discharges) + 
+  geom_histogram(aes(x = Discharges, y = (..count..)/sum(..count..))) + 
+  geom_vline(xintercept = median(hospital.discharges$Discharges), color = "grey50", linetype = "dashed", size = 1) +
+  scale_x_continuous(labels = comma, expand = c(0, 0)) + scale_y_continuous(labels = percent_format()) + 
+  theme(plot.title = element_text(size = 14, face = "bold", vjust = 1),
+        axis.title.x = element_text(size = 13, vjust = -0.15),
+        axis.title.y = element_text(size = 13)) + 
+  labs(title = "Discharges by percentage of total hospitals", x = "# of discharges", y = "% of hospitals")
+
+grid.arrange(hospitals.histo1, hospitals.histo2, ncol=2)
+```
+
+The hospitals who discharged the most Medicare patients (among the top 100 DRGs) in 2011 were:
+
+```{r hospitals_table2, echo=FALSE, results='asis'}
+# convert Hospital ID to character
+hospital.discharges$"Hospital ID" <- as.character(hospital.discharges$"Hospital ID")
+
+# print top 7 hospitals
+print(xtable(hospital.discharges[1:7,]),
+      comment = FALSE,
+      format.args = list(big.mark = ","))
+```
+
+The hospitals the author has a connection with:
+
+```{r hospitals_table3, echo=FALSE, results='asis'}
+# Find hospitals the author has a connection with:
+# which(hospital.discharges$"Hospital ID" == 340002,) # row 14, Mission
+# which(hospital.discharges$"Hospital ID" == 340061,) # row 338, UNC
+# which(hospital.discharges$"Hospital ID" == 140276,) # row 493, Loyola
+# which(hospital.discharges$"Hospital ID" == 340039,) # row 774, Iredell
+# which(hospital.discharges$"Hospital ID" == 110079,) # row 948, Grady
+# which(hospital.discharges$"Hospital ID" == 140150,) # row 1330, UIC
+
+# print hospitals the author has a connection with
+print(xtable(hospital.discharges[c(14, 338, 493, 774, 948, 1330),]),
+      comment = FALSE,
+      format.args = list(big.mark = ","))
+```
+
+\pagebreak
+
+## Average covered charges: what the hospital charged Medicare
+Hospitals submited a charge ("bill") to CMS for each Medicare patient discharge. Included in the charge was the patient's DRG. In the dataset, an average charge was calculated for each DRG within each hospital.
+
+```{r acc, echo=FALSE}
+# summary statistics for acc
+acc.stats <- summarise(cms,
+                       N = n(),
+                       Minimum = dollar(round(min(Average.Covered.Charges), 0)),
+                       "1st Quartile" = dollar(round(quantile(Average.Covered.Charges, .25), 0)),
+                       Median = dollar(round(quantile(Average.Covered.Charges, .50), 0)),
+                       Mean = dollar(round(mean(Average.Covered.Charges), 0)),
+                       "3rd Quartile" = dollar(round(quantile(Average.Covered.Charges, .75), 0)),
+                       Maximum = dollar(round(max(Average.Covered.Charges), 0)))
+
+# Grady:
+Grady <- filter(cms, Provider.Id == 110079) # 70 obs
+Grady2 <- select(Grady, drg, Total.Discharges, Average.Covered.Charges)
+Grady2 <- arrange(Grady2, desc(Average.Covered.Charges), desc(Total.Discharges))
+
+Grady2$Average.Covered.Charges <- dollar(as.numeric(as.character(Grady2$Average.Covered.Charges)))
+```
+
+For example, at **Grady Memorial Hospital** in Atlanta, GA there were `r Grady2$Total.Discharges[1]` Medicare patients discharged with a diagnosis of '`r Grady2$drg[1]`'. These patients had an average covered charge of `r format(Grady2$Average.Covered.Charges[1], big.mark = ",")` submitted to CMS in 2011. The top seven DRGs and corresponding average charges for Grady Memorial Hosptial are in the table below.
+
+```{r acc_table1, echo=FALSE, results='asis'}
+names(Grady2) <- c("Top 7 DRGs", "Discharges", "Avg Charges")
+
+# print top 7 DRG-hospital charges for Grady
+print(xtable(Grady2[1:7,], digits = 0),
+      comment = FALSE,
+      format.args = list(big.mark = ","))
+```
+
+There were `r format(d[1], big.mark = ",")` DRG-hospital charges in the CMS dataset. The median charge was `r format(acc.stats$Median[[1]], big.mark = ",")`.
+
+```{r acc_table2, echo=FALSE, results='asis'}
+print(xtable(acc.stats, digits = 0),
+      comment = FALSE, include.rownames = FALSE,
+      format.args = list(big.mark = ","))
+```
+
+The top histogram shows the distribution of hospital charges which is highly skewed with several extreme outliers. The bottom histogram is the same graph but truncated to better show the shape of the majority of charges.
+
+```{r acc_dist, echo=FALSE}
+acc.histo1 <- ggplot(data = cms) + geom_histogram(aes(x = Average.Covered.Charges)) + 
+  #geom_rug(aes(cms$Average.Covered.Charges), color = "red") +
+  geom_vline(xintercept = median(cms$Average.Covered.Charges), color = "grey50", linetype = "dashed", size = 1) +
+  scale_x_continuous(labels = dollar, expand = c(0, 0)) + scale_y_continuous(labels = comma) + 
+  theme(plot.title = element_text(size = 14, face = "bold", vjust = 1),
+        axis.title.x = element_text(size = 13, vjust = -0.15),
+        axis.title.y = element_text(size = 13)) + 
+  labs(title = "Hospital charges", x = "Average covered charges ($)", y = "# of DRG-hospital charges")
+
+acc.histo2 <- ggplot(data = cms) + geom_histogram(aes(x = Average.Covered.Charges, y = (..count..)/sum(..count..))) + 
+  geom_vline(xintercept = median(cms$Average.Covered.Charges), color = "grey50", linetype = "dashed", size = 1) +
+  scale_x_continuous(labels = dollar, expand = c(0, 0), limits = c(0,200000)) + scale_y_continuous(labels = percent) + 
+  theme(plot.title = element_text(size = 14, face = "bold", vjust = 1),
+        axis.title.x = element_text(size = 13, vjust = -0.15),
+        axis.title.y = element_text(size = 13)) + 
+  labs(title = "Percentage of hospital charges\n(x-axis truncated at $200,000)", 
+       x = "Average covered charges ($)", y = "% of DRG-hospital charges")
+
+grid.arrange(acc.histo1, acc.histo2, nrow=2)
+```
+
+\pagebreak
+
+## Average total payments: what Medicare paid to the hospital
+```{r atp, echo=FALSE}
+# summary statistics for atp
+atp.stats <- summarise(cms,
+                       N = n(),
+                       Minimum = dollar(round(min(Average.Total.Payments), 0)),
+                       "1st Quartile" = dollar(round(quantile(Average.Total.Payments, .25), 0)),
+                       Median = dollar(round(quantile(Average.Total.Payments, .50), 0)),
+                       Mean = dollar(round(mean(Average.Total.Payments), 0)),
+                       "3rd Quartile" = dollar(round(quantile(Average.Total.Payments, .75), 0)),
+                       Maximum = dollar(round(max(Average.Total.Payments), 0)))
+
+median.diff <- dollar(round(quantile(cms$Average.Covered.Charges, .50)[[1]] - quantile(cms$Average.Total.Payments, .50)[[1]], digits = 0))
+```
+
+In addition to hospital charges, the dataset also includes what Medicare paid to the hospital---the average total payment. The median payment was `r format(atp.stats$Median[[1]], big.mark = ",")`, which is `r median.diff` less than the median hospital charge.
+
+```{r atp_table, echo=FALSE, results='asis'}
+print(xtable(atp.stats, digits = 0),
+      comment = FALSE, include.rownames = FALSE,
+      format.args = list(big.mark = ","))
+```
+
+The top histogram shows the distribution of Medicare payments; the bottom histogram shows the same data, but with a truncated x-axis.
+
+```{r atp_dist, echo=FALSE}
+atp.histo1 <- ggplot(data = cms) + geom_histogram(aes(x = Average.Total.Payments)) + 
+  #geom_rug(aes(cms$Average.Total.Payments), color = "red") +
+  geom_vline(xintercept = median(cms$Average.Total.Payments), color = "grey50", linetype = "dashed", size = 1) +
+  scale_x_continuous(labels = dollar, expand = c(0, 0)) + scale_y_continuous(labels = comma) + 
+  theme(plot.title = element_text(size = 14, face = "bold", vjust = 1),
+        axis.title.x = element_text(size = 13, vjust = -0.15),
+        axis.title.y = element_text(size = 13)) + 
+  labs(title = "Medicare payments", x = "Average Medicare payment ($)", y = "# of DRG-hospital payments")
+
+atp.histo2 <- ggplot(data = cms) + geom_histogram(aes(x = Average.Total.Payments, y = (..count..)/sum(..count..))) + 
+  geom_vline(xintercept = median(cms$Average.Total.Payments), color = "grey50", linetype = "dashed", size = 1) +
+  scale_x_continuous(labels = dollar, expand = c(0, 0), limits = c(0,50000)) + scale_y_continuous(labels = percent) + 
+  theme(plot.title = element_text(size = 14, face = "bold", vjust = 1),
+        axis.title.x = element_text(size = 13, vjust = -0.15),
+        axis.title.y = element_text(size = 13)) + 
+  labs(title = "Percentage of Medicare payments\n(x-axis truncated at $50,000)", 
+       x = "Average Medicare payment ($)", y = "% of DRG-hospital payments")
+
+grid.arrange(atp.histo1, atp.histo2, nrow=2)
+```
+
+\pagebreak
+
+## Difference between payments and charges
+```{r diff, echo=FALSE}
+cms$diff <- cms$Average.Total.Payments - cms$Average.Covered.Charges
+
+neg <- length(which(cms$diff < 0)) # loss in revenue
+# length(which(cms$diff == 0)) # Zero
+pos <- length(which(cms$diff > 0)) # gain in revenue
+
+# summary statistics for diff
+diff.stats <- summarise(cms,
+                       N = n(),
+                       Minimum = dollar(round(min(diff), 0)),
+                       "1st Quartile" = dollar(round(quantile(diff, .25), 0)),
+                       Median = dollar(round(quantile(diff, .50), 0)),
+                       Mean = dollar(round(mean(diff), 0)),
+                       "3rd Quartile" = dollar(round(quantile(diff, .75), 0)),
+                       Maximum = dollar(round(max(diff), 0)))
+```
+
+Medicare typically pays less than hospitals charge. Out of `r format(d[1], big.mark = ",")` DRG-hospital charges, `r round((neg / d[1]) * 100, digits = 2)`% were paid, on average, less than what was billed, incuring a negative balance. The median loss in revenue from all DRG-hospital charges was `r diff.stats$Median`.
+
+```{r diff.table, echo=FALSE, results='asis'}
+print(xtable(diff.stats, digits = 0),
+      comment = FALSE, include.rownames = FALSE,
+      format.args = list(big.mark = ","))
+```
+
+Hospitals lost revenue on services provided to Medicare patients, as shown in the two histograms below.
+
+```{r diff_dist1, echo=FALSE}
+ggplot(data = cms) + geom_histogram(aes(x = diff)) + 
+  #geom_rug(aes(cms$diff), color = "red") +
+  geom_vline(xintercept = median(cms$diff), color = "grey50", linetype = "dashed", size = 1) +
+  scale_x_continuous(labels = dollar, expand = c(0, 0)) + scale_y_continuous(labels = comma) + 
+  theme(plot.title = element_text(size = 14, face = "bold", vjust = 1),
+        axis.title.x = element_text(size = 13, vjust = -0.15),
+        axis.title.y = element_text(size = 13)) + 
+  labs(title = "Difference between payments and charges", 
+       x = "Average difference (negative values are a loss)", y = "# of DRG-hospital payments/charges")
+```
+
+```{r diff_dist2, echo=FALSE}
+ggplot(data = cms) + geom_histogram(aes(x = diff, y = (..count..)/sum(..count..))) + 
+  #geom_rug(aes(cms$diff), color = "red") +
+  geom_vline(xintercept = median(cms$diff), color = "grey50", linetype = "dashed", size = 1) +
+  scale_x_continuous(labels = dollar, expand = c(0, 0), limits = c(-100000,50000)) + scale_y_continuous(labels = percent) + 
+  theme(plot.title = element_text(size = 14, face = "bold", vjust = 1),
+        axis.title.x = element_text(size = 13, vjust = -0.15),
+        axis.title.y = element_text(size = 13)) + 
+  labs(title = "Percentage of differences\n(x-axis truncated at -$100,000)", 
+       x = "Average difference (negative values are a loss)", y = "% of DRG-hospital payments/charges")
+```
