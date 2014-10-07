@@ -1,0 +1,89 @@
+---
+title: "Week 6 Assignment"
+author: "Jordan Erickson"
+date: "Monday, October 06, 2014"
+output: html_document
+---
+
+
+Before installing `rvest`, I need to install `devtools` to get the `rvest` package from github.
+
+```{r install_devtools}
+# install.packages("devtools")
+
+library(devtools)
+# build_github_devtools()
+
+#### Restart R before continuing ####
+# install.packages("devtools.zip", repos = NULL)
+
+# Remove the package after installation
+# unlink("devtools.zip")
+```
+
+
+Install `rvest` package from github.
+
+```{r install_rvest}
+install_github("hadley/rvest")
+library(rvest)
+```
+
+
+Run sample code to verify `rvest` loaded properly.
+
+```{r verify}
+lego_movie <- html("http://www.imdb.com/title/tt1490017/")
+
+rating <- lego_movie %>% 
+  html_nodes("strong span") %>%
+  html_text() %>%
+  as.numeric()
+rating
+#> [1] 7.9
+
+cast <- lego_movie %>%
+  html_nodes("#titleCast .itemprop span") %>%
+  html_text()
+cast
+#>  [1] "Will Arnett"     "Elizabeth Banks" "Craig Berry"     "Alison Brie"    
+#>  [5] "David Burrows"   "Anthony Daniels" "Charlie Day"     "Amanda Farinos" 
+#>  [9] "Keith Ferguson"  "Will Ferrell"    "Will Forte"      "Dave Franco"    
+#> [13] "Morgan Freeman"  "Todd Hansen"     "Jonah Hill"     
+
+poster <- lego_movie %>%
+  html_nodes("#img_primary img") %>%
+  html_attr("src")
+poster
+```
+
+
+Assignment: Find a web page from a different site and use `rvest` package functions to pull at least one piece of information from that web page.
+
+```{r pirated_movies}
+# top 10 most pirated movies of all time; TorrentFreak, Oct 12, 2011
+tf <- html("https://torrentfreak.com/top-10-most-pirated-movies-of-all-time-111012/")
+
+# extract with rvest and CSS selectors
+titles <- tf %>%
+  html_nodes("td:nth-child(2)") %>%
+  html_text()
+titles
+
+downloads <- tf %>%
+  html_nodes("td:nth-child(3)") %>%
+  html_text()
+downloads
+
+# create a df
+pirated <- data.frame(titles, downloads, stringsAsFactors = FALSE)
+```
+
+
+**Top 10 Most Pirated Movies of All Time:**
+
+```{r pirated_table, results = 'asis'}
+library(knitr)
+kable(pirated, format = "html", row.names = TRUE)
+```
+*Source: TorrentFreak.com (Oct 2011) via movies downloaded from BitTorrent  (dating back to early 2006)
